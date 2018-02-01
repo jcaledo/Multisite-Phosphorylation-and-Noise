@@ -2,10 +2,10 @@
 title: "Multisite phosphorylation and noise: the scripts"
 author: "Juan Carlos Aledo"
 date: "27/01/2018"
-output: pdf_document
+output: html_document
 ---
 
-Note: This document form part of the Supplementary Material accompaning to the paper *Multisite Phosphorylation Provides a Reliable Mechanism for Making Decisions in Noisy Environments.* The corresponding R Markdown can be downloaded from either https://goo.gl/57ssTK or  https://github.com/jcaledo/Multisite_Phosphorylation_and_Noise
+Note: This document forms part of the Supplementary Material accompaning to the paper *Multisite Phosphorylation Provides a Reliable Mechanism for Making Decisions in Noisy Environments.* The corresponding R Markdown can be downloaded from either https://goo.gl/57ssTK or  https://github.com/jcaledo/Multisite_Phosphorylation_and_Noise
 
 # A general model base on protein phosphorylation
 
