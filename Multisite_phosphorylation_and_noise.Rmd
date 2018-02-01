@@ -1,0 +1,835 @@
+---
+title: "Multisite phosphorylation and noise: the scripts"
+author: "Juan Carlos Aledo"
+date: "27/01/2018"
+output: pdf_document
+---
+
+Note: This document form part of the Supplementary Material accompaning to the paper *Multisite Phosphorylation Provides a Reliable Mechanism for Making Decisions in Noisy Environments.* The corresponding R Markdown can be downloaded from either https://goo.gl/57ssTK or  https://github.com/jcaledo/Multisite_Phosphorylation_and_Noise
+
+# A general model base on protein phosphorylation
+
+When examining the role of multiple phosphorylation in cellular decision-making, and in order to be as general as possible, we will present a model consisting of a protein that is a final target of a signaling cascade. This protein is activated (the signal is detected) when the protein presents at least *k* phosphorylated sites out of a total of n sites present on the protein, where *k* and *n* can take the value of any positive integer (Fig. 1), including *n = k* = 1 for the case of a monosite phosphorylation model. As the number of phosphosites increases in the model, so does the number of potential scenarios we can envision. So, for a target protein with *n* sites, we could evaluate the following *n* scenarios: (*n*, *k*= 1), (*n*, *k* = 2), …, (*n*, *k* = n). Since in these scenarios the target protein does not necessarily need to be fully phosphorylated to be active, those dephosphorylated sites from an active target protein, will be referred to as nonessential sites. 
+
+
+```{r fig.width=10, fig.height=100,echo=FALSE}
+library(png)
+library(grid)
+img <- readPNG("./Fig1.png")
+ grid.raster(img)
+```
+
+
+Figure 1. Cellular signaling networks as classifier models.
+(A) When at least k sites of the final target protein are phosphorylated, the cell decides to trigger a given process.
+If that decision is in response to an existing signal, then we talk about a true positive (TP).
+On the contrary, if such response is due to the noise, then we speak of false positive (FP).
+Other two potential outputs are when the cell does not respond to a signal (false negative, FN) and
+when the cell does not respond because there is not signal that triggers this response (true negative, TN).
+(B) In this way, we define the True Positive Rate (TPR) as a conditional probability,
+P(predicted = Signal | actual = Signal) = TP/(TP + FN). Similarly, the False Positive Rate (FPR) is
+given by P(predicted = Signal | actual = Noise) = FP/(FP+TN). Obviously, the False Negative Rate is
+given by 1 – TPR, and the True Negative Rate (TNR) by 1 – FPR.
+
+The probability of noisy phosphorylation (PNP) is an important parameter of these models, which is obviously related to the noise level. PNP is defined as the probability of being spuriously phosphorylated that presents each individual site. Another important parameter is the so-called probability of proper phosphorylation (PPP), that is defined as the probability of a single site of being phosphorylated in response to the proper signal. In the same way that TPR and FPR are related to each other, PNP and PPP are also positively correlated. For instance, if a giving signaling pathway exhibits a high ability to amplify small changes in the input, then both, PPP as well as PNP, will be high. In any event, signaling systems, although inherently noisy, must be partially reliable, which implies that for any given system under any circumstance, PPP must be always higher than PNP. 
+
+# Signal transduction systems as classifier
+
+We envisioned the biochemical signaling network as a classifier model. Thus, let us assume that the signaling system represents a classifier that read the environmental and internal clues (as if they were the features) and performs its prediction (classification). This approach will allow us to make use of a probabilistic framework. In this way, we define the True Positive Rate (TPR) as a conditional probability, P(predicted = Signal | actual = Signal) = TP/(TP + FN). Similarly, the False Positive Rate (FPR) is given by P(predicted = Signal | actual = Noise) = FP/(FP+TN). On the other hand, TPR + FNR = FPR + TNR = 1, where FNR and TNR stand for False Negative Rate and True Negative Rate, respectively. Obviously, a good signal transducer should exhibit a high TPR while keeping a low FPR. At this point, it is important to realize that most often than not, TPR and FPR are interrelated in such a way that an increase in the TPR will be at the expense of an increase in the FPR too.
+
+Now, by plotting TPR against the FPR under different circunstances, we can obtain a curve known as the ROC (receiver operating characteristic) curve. A ROC graph, in addition to illustrate the tradeoff between TPR and FPR, is an excellent technique for visualizing and assessing the performance of classifiers. To start on, we will plot a ROC curve for a monosite model (*n* = *k* = 1) showing a ROC curve moderately better than random:
+
+```{r echo=FALSE}
+PNP <- seq(from = 0, to = 1, by = 0.01)
+f <- function(x) 1 - ((1-x)/(1+x))
+PPP <- f(PNP)
+
+plot(PNP, PPP, type="l", xlim=c(0,1), xaxt="n", yaxt="n", bty="n", lwd=2,
+     xlab = "False Positive Rate", ylab = "True Positive Rate", cex.lab=1.5)
+axis(side=1, at=seq(0,1,0.2), lwd=2, tck=0.02, pos=0)
+axis(side=2, at=seq(0,1,0.2), lwd=2, tck=0.02, pos=0)
+segments(0,1, 1,1, lwd=2)
+segments(1,0,1,1, lwd=2)
+segments(0,0,1,1, lty=2)
+```
+
+Figure 2. The ROC space. ROC graphs are two-dimensional representations of the achievements of the classifiers being analyzed. Thus, the performance of a signaling network can be characterizedby computing and plotting the TPR and the FPR. Under different circumstances, the same transducer system can operate with different FPRs. However, reducing the rate of false positive always comes to the price of missing true positives, and vice versa. By plotting, for each circumstance, the rate of true positives against the rate of false positives, we can obtain the so-called ROC curve (continuous curve). The dashed straight line represents a random classifier with 50/50
+odds of making a right or wrong decision.
+
+It should be pointed out, that for such a simple model (*n* = *k* = 1), the True Positive Rate matches the PPP, while the False Positive Rate coincides with the PNP.  
+
+# Simulations
+
+To carry out the simulations under different conditions, we will use the following function that return the confution matrix for the number of simulations (iterations) chosen for the user.
+
+```{r}
+
+multisite.simulator <- function(n, k, PNP, time.units, alpha, 
+                                TPp = 1, FPp = -1, FNp = 0, TNp = 0,
+                                FUN = function(x) 1 - ((1-x)/(x+1)), report = FALSE ){
+  
+  # Cells can take binary decisions through out the activation of protein kinases. 
+  # However, it has been described a significant level of signaling promiscuitiy within 
+  # the cell, which has been explained because of the intricancy and multivalency of signal
+  # transduction, the lack of sufficient intrinsic specifity in many PPIs (both catalytic 
+  # and noncatalytic), and the naturally occuring fluctuations between the inactive and 
+  # active dynamic conformations, even in the inatactived protein. 
+  
+  # Herein we consider the signalling cascade leading to the binary decision as a classifier.
+  # If the actual signal is favorable (Actual = 1) and the cell predicted it as favorable
+  # (Predicted = 1), we talk of true positive.  On the other hand, if the actual signal 
+  # is not favorable (Actual = 0)  and the cell predicted it correctely (Predicted = 0),
+  # we talk of true negative. In contrast, if the actual signal is
+  # not favorable but the cell predict it as favorable, we face a false positive. Finally,
+  # it may be that the actual signal is favorable but the cell interpret it as not favorable,
+  # then it counts as a false negative.
+  
+  # TPR: True Positive Rate can be interpreted as P[Predicted = 1 | Actual = 1]
+  # FPR: False Positive Rate can be interpreted as P[Predicted = 1 | Actual = 0]
+  
+  # fpr: as a proxy of the catalytic activity for the kinase enzymes or noise. 
+  # In this way, when fpr is high, both TPR and FPR tend to be high. 
+  
+  # The current function takes the following arguments:
+  
+  # n: the number of phosphosites involved in the prediction.
+  # k: the number of phosphosites that need to be phosphorylated to predict a positive.
+  # PNP: Probability of an individual site to be spuriously phosphorylated.
+  # time.units: number of preditions (iterations).
+  # alpha: probability of a favorable signal in a given interations (Fraction of true positives).
+  # TPp: payoff for True Positives.
+  # FPp: payoff for False Positives.
+  # FNp: payoff for False Negatives.
+  # TNp: payoff for True Negatives.
+  # FUN: funtion relating FPR (False Positive Rate) with TPR (True Positive Rate) in the ROC curve.
+  # report: if TRUE, a RData containing futher results from the simulations will be saved.
+  
+  # This function returns the computed confusion matrix.
+  
+  set.seed(123)
+  PPP <- FUN(PNP) # Probability of an individual site to be Properly Phosphorylated.
+
+  DF <- as.data.frame(matrix(rep(NA, time.units*4), nrow=time.units))
+  names(DF) <- c("Time", "Actual", "Predicted", "Payoff")
+  
+  for (i in 1:time.units){ 
+    
+    # The signal can be present in the enviroment (Actual = 1) or it can be
+    # absent (Actual = 0). And the current situation can change suddenly. 
+    Environment.event <- runif(1)
+    if (Environment.event <= alpha) { Actual <- 1 } else { Actual <- 0 }
+      
+    # Given a state for the environment (either Actual = 0, or Actual = 1)
+    # the cell has to guess the enviromental conditions (Predicted = 1, when 
+    # guessing that the signal is present, and Predcited = 0 if guessing that
+    # the signal is not present)
+    
+    if (Actual == 0){
+      Phosphorylation.event <- runif(1) # Random number
+      # Probability of being wrongly multisite phosphorylated:
+      p_multiFP <- 1 - pbinom(k-1, n, PNP)
+      if (Phosphorylation.event <= p_multiFP){ Predicted <- 1 } else { Predicted <- 0 }
+    }
+    else if (Actual == 1){
+      Phosphorylation.event <- runif(1)
+      # Probability of being properly multisite phosphorylated:
+      p_multiTP <- 1 - pbinom(k-1, n, PPP)
+      if (Phosphorylation.event <= p_multiTP){ Predicted <- 1} else { Predicted <- 0 }
+    }
+    
+    DF$Time[i] <- i
+    DF$Actual[i] <- Actual
+    DF$Predicted[i] <- Predicted
+    
+    if (Actual == 1 & Predicted == 1){ 
+      DF$Payoff[i] <- TPp 
+    } 
+    else if (Actual == 1 & Predicted == 0){
+      DF$Payoff[i] <- FNp 
+    }
+    else if (Actual == 0 & Predicted == 0){
+      DF$Payoff[i] <- TNp
+    }
+    else if (Actual == 0 & Predicted == 1){
+      DF$Payoff[i] <- FPp
+    }
+  }
+  
+  # Confusion Matrix
+  
+  tp <- nrow(DF[which(DF$Actual == 1 & DF$Predicted ==1),])
+  fn <- nrow(DF[which(DF$Actual == 1 & DF$Predicted ==0),])
+  fp <- nrow(DF[which(DF$Actual == 0 & DF$Predicted == 1),])
+  tn <- nrow(DF[which(DF$Actual == 0 & DF$Predicted == 0),])
+  
+  CM <- matrix(c(tp,fn,fp,tn), nrow=2, byrow=TRUE)
+  rownames(CM) <- c("Actual = 1", "Actual = 0")
+  colnames(CM) <- c("Predicted = 1", "Predicted = 0")
+  
+  if (report == T){
+    save(DF, file=paste("./Multisite_", n, "_", k, "_", PNP, "_", time.units, "_",alpha, ".RdA", sep=""))
+  } 
+  return(CM)
+}
+```
+
+
+# Dataframes containing the results
+
+The following chunk prepare two dataframes. One called *scenario* that will collect the computed TPR and FPR under the different scenarios that will be contemplated. The other, calle *AUC* will contain the performance of each of these scenarios.
+
+```{r}
+scenario <- as.data.frame(matrix(rep(NA, length(PNP)*2), nrow=length(PNP)))
+colnames(scenario) <- c("PNP", "PPP")
+scenario$PNP <- PNP
+scenario$PPP <- f(PNP)
+
+library(pracma) # For numerical integration with the function 'trapz' (Trapezoidal Integration)
+AUC <- matrix(rep(NA, 100), nrow=10)
+AUC[1,1] <- round(integrate(f, 0, 1)[[1]],3)
+```
+
+## Two sites involved
+
+When two phosphosites are involved, two scenarios can be envisioned:
+
+Scenario (2,1): only one out of the two sites need to be phosphorylated to take a positive decision.
+Scenario (2,2): both sites need to be phosphorylated to consider a positive prediction.
+
+```{r}
+# Scenario (2,1)
+for (i in 1:length(PNP)){
+  a <- multisite.simulator(n=2, k=1, time.units=100, alpha=0.5, PNP = PNP[i])
+  scenario$FPR_2_1[i] <- a[2,1]/(a[2,1]+a[2,2]) # FPR
+  scenario$TPR_2_1[i] <- a[1,1]/(a[1,1]+a[1,2]) # TPR
+}
+AUC[2,1] <- round(trapz(scenario$FPR_2_1, scenario$TPR_2_1),3)
+
+# Scenario (2,2)
+for (i in 1:length(PNP)){
+  a <- multisite.simulator(n=2, k=2, time.units=100, alpha=0.5,PNP = PNP[i])
+  scenario$FPR_2_2[i] <- a[2,1]/(a[2,1]+a[2,2]) # FPR
+  scenario$TPR_2_2[i] <- a[1,1]/(a[1,1]+a[1,2]) # TPR
+}
+AUC[2,2] <- round(trapz(scenario$FPR_2_2, scenario$TPR_2_2),3)
+```
+
+
+## Three sites involved
+
+When three phosphosites are involved, three scenarios can be envisioned:
+
+Scenario (3,1): only one out of the three sites need to be phosphorylated to take a positive decision.
+Scenario (3,2): at least two sites need to be phosphorylated to consider a positive prediction.
+Scenario (3,3): the three sites need to be phosphorylated to activate the protein.
+
+
+```{r}
+# Scenario (3,1)
+for (i in 1:length(PNP)){
+  a <- multisite.simulator(n=3, k=1, time.units=100, alpha=0.5, PNP = PNP[i])
+  scenario$FPR_3_1[i] <- a[2,1]/(a[2,1]+a[2,2]) # FPR
+  scenario$TPR_3_1[i] <- a[1,1]/(a[1,1]+a[1,2]) # TPR
+}
+AUC[3,1] <- round(trapz(scenario$FPR_3_1, scenario$TPR_3_1),3)
+
+# Scenario (3,2)
+for (i in 1:length(PNP)){
+  a <- multisite.simulator(n=3, k=2, time.units=100, alpha=0.5, PNP = PNP[i])
+  scenario$FPR_3_2[i] <- a[2,1]/(a[2,1]+a[2,2]) # FPR
+  scenario$TPR_3_2[i] <- a[1,1]/(a[1,1]+a[1,2]) # TPR
+}
+AUC[3,2] <- round(trapz(scenario$FPR_3_2, scenario$TPR_3_2),3)
+
+# Scenario (3,3)
+for (i in 1:length(PNP)){
+  a <- multisite.simulator(n=3, k=3, time.units=100, alpha=0.5, PNP = PNP[i])
+  scenario$FPR_3_3[i] <- a[2,1]/(a[2,1]+a[2,2]) # FPR
+  scenario$TPR_3_3[i] <- a[1,1]/(a[1,1]+a[1,2]) # TPR
+}
+AUC[3,3] <- round(trapz(scenario$FPR_3_3, scenario$TPR_3_3),3)
+```
+
+
+## Four sites involved
+
+```{r}
+# Scenario (4,1)
+for (i in 1:length(PNP)){
+  a <- multisite.simulator(n=4, k=1, time.units=100, alpha=0.5, PNP = PNP[i])
+  scenario$FPR_4_1[i] <- a[2,1]/(a[2,1]+a[2,2]) # FPR
+  scenario$TPR_4_1[i] <- a[1,1]/(a[1,1]+a[1,2]) # TPR
+}
+AUC[4,1] <- round(trapz(scenario$FPR_4_1, scenario$TPR_4_1),3)
+
+# Scenario (4,2)
+for (i in 1:length(PNP)){
+  a <- multisite.simulator(n=4, k=2, time.units=100, alpha=0.5,  PNP = PNP[i])
+  scenario$FPR_4_2[i] <- a[2,1]/(a[2,1]+a[2,2]) # FPR
+  scenario$TPR_4_2[i] <- a[1,1]/(a[1,1]+a[1,2]) # TPR
+}
+AUC[4,2] <- round(trapz(scenario$FPR_4_2, scenario$TPR_4_2),3)
+
+# Scenario (4,3)
+for (i in 1:length(PNP)){
+  a <- multisite.simulator(n=4, k=3, time.units=100, alpha=0.5, PNP = PNP[i])
+  scenario$FPR_4_3[i] <- a[2,1]/(a[2,1]+a[2,2]) # FPR
+  scenario$TPR_4_3[i] <- a[1,1]/(a[1,1]+a[1,2]) # TPR
+}
+AUC[4,3] <- round(trapz(scenario$FPR_4_3, scenario$TPR_4_3),3)
+
+# Scenario (4,4)
+for (i in 1:length(PNP)){
+  a <- multisite.simulator(n=4, k=4, time.units=100, alpha=0.5, PNP = PNP[i])
+  scenario$FPR_4_4[i] <- a[2,1]/(a[2,1]+a[2,2]) # FPR
+  scenario$TPR_4_4[i] <- a[1,1]/(a[1,1]+a[1,2]) # TPR
+}
+AUC[4,4] <- round(trapz(scenario$FPR_4_4, scenario$TPR_4_4),3)
+```
+
+## Five sites involved
+
+```{r}
+# Scenario (5,1)
+for (i in 1:length(PNP)){
+  a <- multisite.simulator(n=5, k=1, time.units=100, alpha=0.5, PNP = PNP[i])
+  scenario$FPR_5_1[i] <- a[2,1]/(a[2,1]+a[2,2]) # FPR
+  scenario$TPR_5_1[i] <- a[1,1]/(a[1,1]+a[1,2]) # TPR
+}
+AUC[5,1] <- round(trapz(scenario$FPR_5_1, scenario$TPR_5_1),3)
+
+# Scenario (5,2)
+for (i in 1:length(PNP)){
+  a <- multisite.simulator(n=5, k=2, time.units=100, alpha=0.5, PNP = PNP[i])
+  scenario$FPR_5_2[i] <- a[2,1]/(a[2,1]+a[2,2]) # FPR
+  scenario$TPR_5_2[i] <- a[1,1]/(a[1,1]+a[1,2]) # TPR
+}
+AUC[5,2] <- round(trapz(scenario$FPR_5_2, scenario$TPR_5_2),3)
+
+# Scenario (5,3)
+for (i in 1:length(PNP)){
+  a <- multisite.simulator(n=5, k=3, time.units=100, alpha=0.5, PNP = PNP[i])
+  scenario$FPR_5_3[i] <- a[2,1]/(a[2,1]+a[2,2]) # FPR
+  scenario$TPR_5_3[i] <- a[1,1]/(a[1,1]+a[1,2]) # TPR
+}
+AUC[5,3] <- round(trapz(scenario$FPR_5_3, scenario$TPR_5_3),3)
+
+# Scenario (5,4)
+for (i in 1:length(PNP)){
+  a <- multisite.simulator(n=5, k=4, time.units=100, alpha=0.5, PNP = PNP[i])
+  scenario$FPR_5_4[i] <- a[2,1]/(a[2,1]+a[2,2]) # FPR
+  scenario$TPR_5_4[i] <- a[1,1]/(a[1,1]+a[1,2]) # TPR
+}
+AUC[5,4] <- round(trapz(scenario$FPR_5_4, scenario$TPR_5_4),3)
+
+# Scenario (5,5)
+for (i in 1:length(PNP)){
+  a <- multisite.simulator(n=5, k=5, time.units=100, alpha=0.5, PNP = PNP[i])
+  scenario$FPR_5_5[i] <- a[2,1]/(a[2,1]+a[2,2]) # FPR
+  scenario$TPR_5_5[i] <- a[1,1]/(a[1,1]+a[1,2]) # TPR
+}
+AUC[5,5] <- round(trapz(scenario$FPR_5_5, scenario$TPR_5_5),3)
+```
+
+## Six sites involved
+
+```{r}
+# Scenario (6,1)
+for (i in 1:length(PNP)){
+  a <- multisite.simulator(n=6, k=1, time.units=100, alpha=0.5, PNP = PNP[i])
+  scenario$FPR_6_1[i] <- a[2,1]/(a[2,1]+a[2,2]) # FPR
+  scenario$TPR_6_1[i] <- a[1,1]/(a[1,1]+a[1,2]) # TPR
+}
+AUC[6,1] <- round(trapz(scenario$FPR_6_1, scenario$TPR_6_1),3)
+
+# Scenario (6,2)
+for (i in 1:length(PNP)){
+  a <- multisite.simulator(n=6, k=2, time.units=100, alpha=0.5, PNP = PNP[i])
+  scenario$FPR_6_2[i] <- a[2,1]/(a[2,1]+a[2,2]) # FPR
+  scenario$TPR_6_2[i] <- a[1,1]/(a[1,1]+a[1,2]) # TPR
+}
+AUC[6,2] <- round(trapz(scenario$FPR_6_2, scenario$TPR_6_2),3)
+
+# Scenario (6,3)
+for (i in 1:length(PNP)){
+  a <- multisite.simulator(n=6, k=3, time.units=100, alpha=0.5, PNP = PNP[i])
+  scenario$FPR_6_3[i] <- a[2,1]/(a[2,1]+a[2,2]) # FPR
+  scenario$TPR_6_3[i] <- a[1,1]/(a[1,1]+a[1,2]) # TPR
+}
+AUC[6,3] <- round(trapz(scenario$FPR_6_3, scenario$TPR_6_3),3)
+
+# Scenario (6,4)
+for (i in 1:length(PNP)){
+  a <- multisite.simulator(n=6, k=4, time.units=100, alpha=0.5, PNP = PNP[i])
+  scenario$FPR_6_4[i] <- a[2,1]/(a[2,1]+a[2,2]) # FPR
+  scenario$TPR_6_4[i] <- a[1,1]/(a[1,1]+a[1,2]) # TPR
+}
+AUC[6,4] <- round(trapz(scenario$FPR_6_4, scenario$TPR_6_4),3)
+
+# Scenario (6,5)
+for (i in 1:length(PNP)){
+  a <- multisite.simulator(n=6, k=5, time.units=100, alpha=0.5, PNP = PNP[i])
+  scenario$FPR_6_5[i] <- a[2,1]/(a[2,1]+a[2,2]) # FPR
+  scenario$TPR_6_5[i] <- a[1,1]/(a[1,1]+a[1,2]) # TPR
+}
+AUC[6,5] <- round(trapz(scenario$FPR_6_5, scenario$TPR_6_5),3)
+
+# Scenario (6,6)
+for (i in 1:length(PNP)){
+  a <- multisite.simulator(n=6, k=6, time.units=100, alpha=0.5, PNP = PNP[i])
+  scenario$FPR_6_6[i] <- a[2,1]/(a[2,1]+a[2,2]) # FPR
+  scenario$TPR_6_6[i] <- a[1,1]/(a[1,1]+a[1,2]) # TPR
+}
+AUC[6,6] <- round(trapz(scenario$FPR_6_6, scenario$TPR_6_6),3)
+```
+
+
+## Seven sites involved
+
+```{r}
+# Scenario (7,1)
+for (i in 1:length(PNP)){
+  a <- multisite.simulator(n=7, k=1, time.units=100,alpha=0.5, PNP = PNP[i])
+  scenario$FPR_7_1[i] <- a[2,1]/(a[2,1]+a[2,2]) # FPR
+  scenario$TPR_7_1[i] <- a[1,1]/(a[1,1]+a[1,2]) # TPR
+}
+AUC[7,1] <- round(trapz(scenario$FPR_7_1, scenario$TPR_7_1),3)
+
+# Scenario (7,2)
+for (i in 1:length(PNP)){
+  a <- multisite.simulator(n=7, k=2, time.units=100, alpha=0.5, PNP = PNP[i])
+  scenario$FPR_7_2[i] <- a[2,1]/(a[2,1]+a[2,2]) # FPR
+  scenario$TPR_7_2[i] <- a[1,1]/(a[1,1]+a[1,2]) # TPR
+}
+AUC[7,2] <- round(trapz(scenario$FPR_7_2, scenario$TPR_7_2),3)
+
+# Scenario (7,3)
+for (i in 1:length(PNP)){
+  a <- multisite.simulator(n=7, k=3, time.units=100, alpha=0.5, PNP = PNP[i])
+  scenario$FPR_7_3[i] <- a[2,1]/(a[2,1]+a[2,2]) # FPR
+  scenario$TPR_7_3[i] <- a[1,1]/(a[1,1]+a[1,2]) # TPR
+}
+AUC[7,3] <- round(trapz(scenario$FPR_7_3, scenario$TPR_7_3),3)
+
+# Scenario (7,4)
+for (i in 1:length(PNP)){
+  a <- multisite.simulator(n=7, k=4, time.units=100, alpha=0.5, PNP = PNP[i])
+  scenario$FPR_7_4[i] <- a[2,1]/(a[2,1]+a[2,2]) # FPR
+  scenario$TPR_7_4[i] <- a[1,1]/(a[1,1]+a[1,2]) # TPR
+}
+AUC[7,4] <- round(trapz(scenario$FPR_7_4, scenario$TPR_7_4),3)
+
+# Scenario (7,5)
+for (i in 1:length(PNP)){
+  a <- multisite.simulator(n=7, k=5, time.units=100, alpha=0.5, PNP = PNP[i])
+  scenario$FPR_7_5[i] <- a[2,1]/(a[2,1]+a[2,2]) # FPR
+  scenario$TPR_7_5[i] <- a[1,1]/(a[1,1]+a[1,2]) # TPR
+}
+AUC[7,5] <- round(trapz(scenario$FPR_7_5, scenario$TPR_7_5),3)
+
+# Scenario (7,6)
+for (i in 1:length(PNP)){
+  a <- multisite.simulator(n=7, k=6, time.units=100, alpha=0.5, PNP = PNP[i])
+  scenario$FPR_7_6[i] <- a[2,1]/(a[2,1]+a[2,2]) # FPR
+  scenario$TPR_7_6[i] <- a[1,1]/(a[1,1]+a[1,2]) # TPR
+}
+AUC[7,6] <- round(trapz(scenario$FPR_7_6, scenario$TPR_7_6),3)
+
+# Scenario (7,7)
+for (i in 1:length(PNP)){
+  a <- multisite.simulator(n=7, k=7, time.units=100, alpha=0.5, PNP = PNP[i])
+  scenario$FPR_7_7[i] <- a[2,1]/(a[2,1]+a[2,2]) # FPR
+  scenario$TPR_7_7[i] <- a[1,1]/(a[1,1]+a[1,2]) # TPR
+}
+AUC[7,7] <- round(trapz(scenario$FPR_7_7, scenario$TPR_7_7),3)
+```
+
+## Eight sites involved
+```{r}
+# Scenario (8,1)
+for (i in 1:length(PNP)){
+  a <- multisite.simulator(n=8, k=1, time.units=100, alpha=0.5, PNP = PNP[i])
+  scenario$FPR_8_1[i] <- a[2,1]/(a[2,1]+a[2,2]) # FPR
+  scenario$TPR_8_1[i] <- a[1,1]/(a[1,1]+a[1,2]) # TPR
+}
+AUC[8,1] <- round(trapz(scenario$FPR_8_1, scenario$TPR_8_1),3)
+
+# Scenario (8,2)
+for (i in 1:length(PNP)){
+  a <- multisite.simulator(n=8, k=2, time.units=100, alpha=0.5, PNP = PNP[i])
+  scenario$FPR_8_2[i] <- a[2,1]/(a[2,1]+a[2,2]) # FPR
+  scenario$TPR_8_2[i] <- a[1,1]/(a[1,1]+a[1,2]) # TPR
+}
+AUC[8,2] <- round(trapz(scenario$FPR_8_2, scenario$TPR_8_2),3)
+
+# Scenario (8,3)
+for (i in 1:length(PNP)){
+  a <- multisite.simulator(n=8, k=3, time.units=100, alpha=0.5, PNP = PNP[i])
+  scenario$FPR_8_3[i] <- a[2,1]/(a[2,1]+a[2,2]) # FPR
+  scenario$TPR_8_3[i] <- a[1,1]/(a[1,1]+a[1,2]) # TPR
+}
+AUC[8,3] <- round(trapz(scenario$FPR_8_3, scenario$TPR_8_3),3)
+
+# Scenario (8,4)
+for (i in 1:length(PNP)){
+  a <- multisite.simulator(n=8, k=4, time.units=100, alpha=0.5, PNP = PNP[i])
+  scenario$FPR_8_4[i] <- a[2,1]/(a[2,1]+a[2,2]) # FPR
+  scenario$TPR_8_4[i] <- a[1,1]/(a[1,1]+a[1,2]) # TPR
+}
+AUC[8,4] <- round(trapz(scenario$FPR_8_4, scenario$TPR_8_4),3)
+
+# Scenario (8,5)
+for (i in 1:length(PNP)){
+  a <- multisite.simulator(n=8, k=5, time.units=100, alpha=0.5, PNP = PNP[i])
+  scenario$FPR_8_5[i] <- a[2,1]/(a[2,1]+a[2,2]) # FPR
+  scenario$TPR_8_5[i] <- a[1,1]/(a[1,1]+a[1,2]) # TPR
+}
+AUC[8,5] <- round(trapz(scenario$FPR_8_5, scenario$TPR_8_5),3)
+
+# Scenario (8,6)
+for (i in 1:length(PNP)){
+  a <- multisite.simulator(n=8, k=6, time.units=100, alpha=0.5, PNP = PNP[i])
+  scenario$FPR_8_6[i] <- a[2,1]/(a[2,1]+a[2,2]) # FPR
+  scenario$TPR_8_6[i] <- a[1,1]/(a[1,1]+a[1,2]) # TPR
+}
+AUC[8,6] <- round(trapz(scenario$FPR_8_6, scenario$TPR_8_6),3)
+
+# Scenario (8,7)
+for (i in 1:length(PNP)){
+  a <- multisite.simulator(n=8, k=7, time.units=100, alpha=0.5, PNP = PNP[i])
+  scenario$FPR_8_7[i] <- a[2,1]/(a[2,1]+a[2,2]) # FPR
+  scenario$TPR_8_7[i] <- a[1,1]/(a[1,1]+a[1,2]) # TPR
+}
+AUC[8,7] <- round(trapz(scenario$FPR_8_7, scenario$TPR_8_7),3)
+
+# Scenario (8,8)
+for (i in 1:length(PNP)){
+  a <- multisite.simulator(n=8, k=8, time.units=100, alpha=0.5, PNP = PNP[i])
+  scenario$FPR_8_8[i] <- a[2,1]/(a[2,1]+a[2,2]) # FPR
+  scenario$TPR_8_8[i] <- a[1,1]/(a[1,1]+a[1,2]) # TPR
+}
+AUC[8,8] <- round(trapz(scenario$FPR_8_8, scenario$TPR_8_8),3)
+```
+
+
+## Nine sites involved
+
+```{r}
+# Scenario (9,1)
+for (i in 1:length(PNP)){
+  a <- multisite.simulator(n=9, k=1, time.units=100, alpha=0.5, PNP = PNP[i])
+  scenario$FPR_9_1[i] <- a[2,1]/(a[2,1]+a[2,2]) # FPR
+  scenario$TPR_9_1[i] <- a[1,1]/(a[1,1]+a[1,2]) # TPR
+}
+AUC[9,1] <- round(trapz(scenario$FPR_9_1, scenario$TPR_9_1),3)
+
+
+# Scenario (9,2)
+for (i in 1:length(PNP)){
+  a <- multisite.simulator(n=9, k=2, time.units=100, alpha=0.5, PNP = PNP[i])
+  scenario$FPR_9_2[i] <- a[2,1]/(a[2,1]+a[2,2]) # FPR
+  scenario$TPR_9_2[i] <- a[1,1]/(a[1,1]+a[1,2]) # TPR
+}
+AUC[9,2] <- round(trapz(scenario$FPR_9_2, scenario$TPR_9_2),3)
+
+# Scenario (9,3)
+for (i in 1:length(PNP)){
+  a <- multisite.simulator(n=9, k=3, time.units=100, alpha=0.5, PNP = PNP[i])
+  scenario$FPR_9_3[i] <- a[2,1]/(a[2,1]+a[2,2]) # FPR
+  scenario$TPR_9_3[i] <- a[1,1]/(a[1,1]+a[1,2]) # TPR
+}
+AUC[9,3] <- round(trapz(scenario$FPR_9_3, scenario$TPR_9_3),3)
+
+# Scenario (9,4)
+for (i in 1:length(PNP)){
+  a <- multisite.simulator(n=9, k=4, time.units=100,alpha=0.5, PNP = PNP[i])
+  scenario$FPR_9_4[i] <- a[2,1]/(a[2,1]+a[2,2]) # FPR
+  scenario$TPR_9_4[i] <- a[1,1]/(a[1,1]+a[1,2]) # TPR
+}
+AUC[9,4] <- round(trapz(scenario$FPR_9_4, scenario$TPR_9_4),3)
+
+# Scenario (9,5)
+for (i in 1:length(PNP)){
+  a <- multisite.simulator(n=9, k=5, time.units=100,alpha=0.5, PNP = PNP[i])
+  scenario$FPR_9_5[i] <- a[2,1]/(a[2,1]+a[2,2]) # FPR
+  scenario$TPR_9_5[i] <- a[1,1]/(a[1,1]+a[1,2]) # TPR
+}
+AUC[9,5] <- round(trapz(scenario$FPR_9_5, scenario$TPR_9_5),3)
+
+# Scenario (9,6)
+for (i in 1:length(PNP)){
+  a <- multisite.simulator(n=9, k=6, time.units=100, alpha=0.5, PNP = PNP[i])
+  scenario$FPR_9_6[i] <- a[2,1]/(a[2,1]+a[2,2]) # FPR
+  scenario$TPR_9_6[i] <- a[1,1]/(a[1,1]+a[1,2]) # TPR
+}
+AUC[9,6] <- round(trapz(scenario$FPR_9_6, scenario$TPR_9_6),3)
+
+# Scenario (9,7)
+for (i in 1:length(PNP)){
+  a <- multisite.simulator(n=9, k=7, time.units=100,alpha=0.5, PNP = PNP[i])
+  scenario$FPR_9_7[i] <- a[2,1]/(a[2,1]+a[2,2]) # FPR
+  scenario$TPR_9_7[i] <- a[1,1]/(a[1,1]+a[1,2]) # TPR
+}
+AUC[9,7] <- round(trapz(scenario$FPR_9_7, scenario$TPR_9_7),3)
+
+
+# Scenario (9,8)
+for (i in 1:length(PNP)){
+  a <- multisite.simulator(n=9, k=8, time.units=100, alpha=0.5, PNP = PNP[i])
+  scenario$FPR_9_8[i] <- a[2,1]/(a[2,1]+a[2,2]) # FPR
+  scenario$TPR_9_8[i] <- a[1,1]/(a[1,1]+a[1,2]) # TPR
+}
+AUC[9,8] <- round(trapz(scenario$FPR_9_8, scenario$TPR_9_8),3)
+
+# Scenario (9,9)
+for (i in 1:length(PNP)){
+  a <- multisite.simulator(n=9, k=9, time.units=100, alpha=0.5, PNP = PNP[i])
+  scenario$FPR_9_9[i] <- a[2,1]/(a[2,1]+a[2,2]) # FPR
+  scenario$TPR_9_9[i] <- a[1,1]/(a[1,1]+a[1,2]) # TPR
+}
+AUC[9,9] <- round(trapz(scenario$FPR_9_9, scenario$TPR_9_9),3)
+```
+
+
+## Ten sites involved
+
+```{r}
+# Scenario (10,1)
+for (i in 1:length(PNP)){
+  a <- multisite.simulator(n=10, k=1, time.units=100, alpha=0.5, PNP = PNP[i])
+  scenario$FPR_10_1[i] <- a[2,1]/(a[2,1]+a[2,2]) # FPR
+  scenario$TPR_10_1[i] <- a[1,1]/(a[1,1]+a[1,2]) # TPR
+}
+AUC[10,1] <- round(trapz(scenario$FPR_10_1, scenario$TPR_10_1),3)
+
+
+# Scenario (10,2)
+for (i in 1:length(PNP)){
+  a <- multisite.simulator(n=10, k=2, time.units=100, alpha=0.5, PNP = PNP[i])
+  scenario$FPR_10_2[i] <- a[2,1]/(a[2,1]+a[2,2]) # FPR
+  scenario$TPR_10_2[i] <- a[1,1]/(a[1,1]+a[1,2]) # TPR
+}
+AUC[10,2] <- round(trapz(scenario$FPR_10_2, scenario$TPR_10_2),3)
+
+# Scenario (10,3)
+for (i in 1:length(PNP)){
+  a <- multisite.simulator(n=10, k=3, time.units=100, alpha=0.5, PNP = PNP[i])
+  scenario$FPR_10_3[i] <- a[2,1]/(a[2,1]+a[2,2]) # FPR
+  scenario$TPR_10_3[i] <- a[1,1]/(a[1,1]+a[1,2]) # TPR
+}
+AUC[10,3] <- round(trapz(scenario$FPR_10_3, scenario$TPR_10_3),3)
+
+# Scenario (10,4)
+for (i in 1:length(PNP)){
+  a <- multisite.simulator(n=10, k=4, time.units=100, alpha=0.5, PNP = PNP[i])
+  scenario$FPR_10_4[i] <- a[2,1]/(a[2,1]+a[2,2]) # FPR
+  scenario$TPR_10_4[i] <- a[1,1]/(a[1,1]+a[1,2]) # TPR
+}
+AUC[10,4] <- round(trapz(scenario$FPR_10_4, scenario$TPR_10_4),3)
+
+# Scenario (10,5)
+for (i in 1:length(PNP)){
+  a <- multisite.simulator(n=10, k=5, time.units=100, alpha=0.5, PNP = PNP[i])
+  scenario$FPR_10_5[i] <- a[2,1]/(a[2,1]+a[2,2]) # FPR
+  scenario$TPR_10_5[i] <- a[1,1]/(a[1,1]+a[1,2]) # TPR
+}
+AUC[10,5] <- round(trapz(scenario$FPR_10_5, scenario$TPR_10_5),3)
+
+# Scenario (10,6)
+for (i in 1:length(PNP)){
+  a <- multisite.simulator(n=10, k=6, time.units=100, alpha=0.5, PNP = PNP[i])
+  scenario$FPR_10_6[i] <- a[2,1]/(a[2,1]+a[2,2]) # FPR
+  scenario$TPR_10_6[i] <- a[1,1]/(a[1,1]+a[1,2]) # TPR
+}
+AUC[10,6] <- round(trapz(scenario$FPR_10_6, scenario$TPR_10_6),3)
+
+# Scenario (10,7)
+for (i in 1:length(PNP)){
+  a <- multisite.simulator(n=10, k=7, time.units=100, alpha=0.5, PNP = PNP[i])
+  scenario$FPR_10_7[i] <- a[2,1]/(a[2,1]+a[2,2]) # FPR
+  scenario$TPR_10_7[i] <- a[1,1]/(a[1,1]+a[1,2]) # TPR
+}
+AUC[10,7] <- round(trapz(scenario$FPR_10_7, scenario$TPR_10_7),3)
+
+
+# Scenario (10,8)
+for (i in 1:length(PNP)){
+  a <- multisite.simulator(n=10, k=8, time.units=100, alpha=0.5, PNP = PNP[i])
+  scenario$FPR_10_8[i] <- a[2,1]/(a[2,1]+a[2,2]) # FPR
+  scenario$TPR_10_8[i] <- a[1,1]/(a[1,1]+a[1,2]) # TPR
+}
+AUC[10,8] <- round(trapz(scenario$FPR_10_8, scenario$TPR_10_8),3)
+
+# Scenario (10,9)
+for (i in 1:length(PNP)){
+  a <- multisite.simulator(n=10, k=9, time.units=100, alpha=0.5, PNP = PNP[i])
+  scenario$FPR_10_9[i] <- a[2,1]/(a[2,1]+a[2,2]) # FPR
+  scenario$TPR_10_9[i] <- a[1,1]/(a[1,1]+a[1,2]) # TPR
+}
+AUC[10,9] <- round(trapz(scenario$FPR_10_9, scenario$TPR_10_9),3)
+
+# Scenario (10,10)
+for (i in 1:length(PNP)){
+  a <- multisite.simulator(n=10, k=10, time.units=100, alpha=0.5, PNP = PNP[i])
+  scenario$FPR_10_10[i] <- a[2,1]/(a[2,1]+a[2,2]) # FPR
+  scenario$TPR_10_10[i] <- a[1,1]/(a[1,1]+a[1,2]) # TPR
+}
+AUC[10,10] <- round(trapz(scenario$FPR_10_10, scenario$TPR_10_10),3)
+```
+
+## Saving Data
+
+```{r}
+save(scenario, file="./scenario.Rda")
+save(AUC, file="./AUC.Rda")
+```
+
+# Analysing the data generate for the simulations
+
+Since the data tha we are going to analyze were saved in our computer, we can run the following code without the need to re-run the previous chunks, just loading the data.
+
+```{r}
+rm(list=ls())
+load("./scenario.Rda")
+load("./AUC.Rda")
+```
+
+## Conservative versus liberal strategies
+
+For two phosphosites involved in the signalling process we can either increase the number of TP being detected, scenario (2,1), but it cames to the expesen of increasing the number of FP. On the other hand, we can reduce the number of FP, scenario (2,2), but then we have to pay off decreasing also the number of TP.
+
+```{r, echo = FALSE} 
+# ---------------------------- FIGURE 3 ----------------------------------------- #
+par(mar=c(5.1,4.1,4.1,2.1))
+layout(matrix(c(1,2,3,3), 2, 2, byrow = TRUE))
+
+# About True Positives
+plot(scenario$PPP, scenario$TPR_2_1, ty="l", xlab="PPP", ylab="True Positive Rate",
+     cex.lab=1.5, lwd=2, col="red")
+points(scenario$PPP, scenario$TPR_2_2, ty="l", lwd=2, col="blue")
+segments(0,0,1,1, lty=2)
+ 
+# About False Positives
+plot(scenario$PNP, scenario$FPR_2_1, ty="l", xlab="PNP", ylab="False Positive Rate",
+     cex.lab=1.5, lwd=2, col="red")
+points(scenario$PNP, scenario$FPR_2_2, ty="l", lwd=2, col="blue")
+segments(0,0, 1,1, lty=2)
+ 
+# Area under the ROC curve
+par(mar = c(5,10,3,5))
+plot(scenario$PNP, scenario$PPP,
+     type="l", xlim=c(0,1), xaxt="n", yaxt="n", bty="n", lwd=2,
+     xlab = "False Positive Rate", ylab = "True Positive Rate", cex.lab=1.5)
+points(scenario$FPR_2_1, scenario$TPR_2_1, type = "l", col="red")
+points(scenario$FPR_2_2, scenario$TPR_2_2, type = "l", col="blue")
+axis(side=1, at=seq(0,1,0.2), lwd=2, tck=0.02, pos=0)
+axis(side=2, at=seq(0,1,0.2), lwd=2, tck=0.02, pos=0)
+segments(0,1, 1,1, lwd=2)
+segments(1,0,1,1, lwd=2)
+segments(0,0,1,1, lty=2)
+```
+
+
+Figure 3. (A)  Plot relating the probability of a proper phosphorylation with the true positive rate for a liberal model (n = 2, k = 1, continuous red line) and a conservative model (n = 2, k = 2, continuous blue line). For comparative purposes, the dashed straight line shows the relationship between PPP and TPR for a monosite model (n = 1, k = 1). (B) Plot showing the relationship between the probability of a noisy phosphorylation and the false positive rate for the liberal (n = 2, k = 1, continuous red line), the conservative (n = 2, k = 2, continuous blue line) and the monosite (n = 1, k = 1, dashed straight line) models.  (C) ROC curves for a random (dashed straight line), a monosite (continuous black curve), a liberal (continuous red line) and a conservative (continuous blue line) model.
+
+## Influence of the number of total and nonessential sites on the classifier performance
+
+The scenarios (n, k = 1) and (n, k = n) don't increase much the AUC, regarless the value of n.
+
+```{r echo = FALSE}
+# -------------------------- FIGURE 4 -------------------------------------------#
+x <- AUC[,1] 
+y <-  diag(AUC)
+z <- apply(AUC, 1, max, na.rm=T)
+
+auc_k1 <- x[-1] # AUC for all the n>1 and k=1
+auc_kn <- y[-1] # AUC for all the n>1 and k=n
+auc_k05 <- z[-1] # AUC for all the n>1 and k around (n/1)
+
+auc <- matrix(c(auc_k1, auc_k05, auc_kn), ncol=3, byrow=F) - 0.5
+rownames(auc) <- 2:10
+barplot(t(auc), axes=T, ylab="AUC increase over random",
+        col=c( "white", "gray", "black"), beside=T, xlab="Number of Phosphosites")
+```
+
+Figure 4. Influence of the number of total and nonessential sites on the classifier performance. The area under the ROC curve (AUC) was assessed as a measurement of the performance of different models. The models considered were those corresponding to target proteins showing different number of total phosphorylation sites (from n = 2 to n = 10).  The white bars show the AUC values obtained for the liberal versions of these models (k = 1), while the black bars give the values for their conservative counterparts (k = n). As it can be observed, in all the cases the best performance was obtained when around half of the total number of sites need to be phosphorylated to trigger the response (gray bars). 
+
+## Nonessential sites are key for improving AUC
+
+```{r echo = FALSE}
+#----------------- FIGURE 5 -------------------------#
+layout(matrix(c(1,2), nrow=1, byrow = TRUE))
+
+plot(scenario$PNP, scenario$PPP,
+     type="l", xlim=c(0,1), xaxt="n", yaxt="n", bty="n", lwd=2,
+     xlab = "False Positive Rate", ylab = "True Positive Rate", cex.lab=1.5)
+axis(side=1, at=seq(0,1,0.2), lwd=2, tck=0.02, pos=0)
+axis(side=2, at=seq(0,1,0.2), lwd=2, tck=0.02, pos=0)
+segments(0,1, 1,1, lwd=2)
+segments(1,0,1,1, lwd=2)
+segments(0,0,1,1, lty=2)
+
+for (i in c(93,95,97,101,103,105,107)){
+     points(scenario[,i], scenario[,i+1], ty="l", lty=2, col="gray")
+}
+
+points(scenario[,91],scenario[,92], ty="l", col="red") # n=10,k=1
+points(scenario[,99],scenario[,100], ty="l", col="green", lwd=2) # n=10,k=5
+points(scenario[,109],scenario[,110], ty="l", col="blue") # n=10,k=10
+
+plot(1:10, AUC[10,], ty="b", xlab="k", ylab="AUC",
+     ylim = c(0.65,0.8), cex.lab=1.5)
+box(lwd=2)
+# for (i in 3:9){
+#   points(1:10, AUC[i,], ty="b", lty=2)
+# }
+points(1:10, AUC[6,], ty="b", pch=0, lty=2)
+points(1:10, AUC[8,], ty="b", pch=6, lty=4)
+
+layout(matrix(c(1,1), nrow=1, byrow = TRUE)) # go back to the initial setting 
+```
+
+Figure 5. Nonessential sites are key for improving the accuracy. (A) The ROC curves for a system consisting of a target protein containing 10 sites and n - k nonessential sites. The curves for the liberal (k = 1) and conservative (k = 1) models are depicted in red and blue, respectively. The ROC curve for the model with 4 nonessential sites, that is k = 6, is represented in green. The ROC curves for all other possible models are shown in gray. The ROC curve for a monosite model is also shown (black curve) for the sake of comparison, as well as the identity function (dashed straight line). (B) The AUC for all the 10 models described in (A) were computed and plotted against k (circles). The same was carried out for models with n = 8 (triangles) and n = 6 (squares), to illustrate how for a fixed k value increasing the number of nonessential sites lead to an improved performance of the transducer.
+
+## The Condorcet’s jury theorem provides an explanation to the key role of nonessential sites
+
+TPR (FPR) as a function of PPP (PNP)
+
+
+```{r echo = FALSE}
+# --------------------- FIGURE 6-------------------------- #
+n <- 10
+p <- seq(from=0 , to=1 , by=0.05 ) # PPP or PNP
+
+plot(0:1,0:1, ty="l", lty=2, xlab="PPP (or PNP)", ylab="TPR (or FPR)")
+
+
+px <- c(0, c(p[1:12], 0.57), 0.57)
+py <- c(0, c(p[1:12], 0.57), 0)
+polygon(px, py, col='yellow', border=NA)
+
+pxx <- c(0, c(p[1:12], 0.575), 0.575)
+pyy <- c(0, 1-pbinom(5, 10, c(p[1:12], 0.575)), 0)
+polygon(pxx, pyy, col='white', border=NA)
+
+px <- c(0.58, c(0.58, p[13:21]), p[21])
+py <- c(0, 1-pbinom(5, 10, c(0.58, p[13:21])), 0)
+polygon(px, py, col="skyblue", border=NA)
+
+pxx <- c(0.58, c(0.58,p[13:21]), p[21])
+pyy <- c(0, c(0.58,p[13:21]), 0 )
+polygon(pxx, pyy, col="white", border=NA)
+
+abline(0,1, lty=2, lwd=1.5)
+points(p, 1-pbinom(5, 10, p), ty="b", pch=19, lwd=1.5)
+# abline(v=0.58, lty=1, lwd=1)
+points(p, 1-pbinom(4, 10, p), ty="b", pch=1,  lty=2, lwd=1.5)
+# abline(v=0.42, lty=2, lwd=1.5)
+points(p, 1-pbinom(6, 10, p), ty="b", pch=2,  lty=2, lwd=1.5)
+
+text(0.5,0.7, "k = 5")
+text(0.55,0.6, "k = 6")
+text(0.62,0.5, "k = 7")
+```
+
+Figure 6. The Condorcet’s jury theorem provides an explanation to the key role of nonessential sites. For a monosite model PPP and PNP are equal to TPR and FPR, respectively (dashed straight line). However, for a multisite model (n = 10, k = 6, filled circles) the TPR can be either greater (improved system, cyan area) or lower (worsened system, yellow area) than the PPP, depending on the values that the independent variable PPP takes. Similarly, the FPR, can go up (worsened system, cyan area) or down (improved system, yellow area), now depending on the values of PNP. Therefore, for values of PPP slightly higher than PNP, the optimal model is that with k = 6, because it provides an increased TPR simultaneously with a decreased FPR. For comparative purposes, we have also plotted the model n = 10, k = 5 (empty circles), which will perform well only for low values of PNP, as well as the model n = 10, k = 7 (empty triangles) that will be suitable only for high values of PPP.
